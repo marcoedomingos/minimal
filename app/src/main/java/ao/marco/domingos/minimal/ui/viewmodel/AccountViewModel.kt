@@ -9,6 +9,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.DurationUnit
 
 sealed class AccountState {
     class Initial : AccountState();
@@ -38,17 +42,19 @@ class AccountViewModel(val db: AppDatabase) : ViewModel() {
     }
 
     suspend fun addOperation(amount: Double, type: OperationType) {
-        withContext(Dispatchers.IO) {
-            _state.value = AccountState.Loading()
-            operationDao.insert(Operation(accountId = account.id, amount = amount, type = type))
-            if(type == OperationType.CREDIT) {
-                account.total += amount
-            } else {
-                account.total -= amount
+        _state.value = AccountState.Loading()
+        withTimeout(2.seconds){
+            withContext(Dispatchers.IO) {
+                operationDao.insert(Operation(accountId = account.id, amount = amount, type = type))
+                if(type == OperationType.CREDIT) {
+                    account.total += amount
+                } else {
+                    account.total -= amount
+                }
+                account.operations = operationDao.getOperations(account.id)
+                accountDao.update(account);
+                _state.value = AccountState.Success(account = account);
             }
-            account.operations = operationDao.getOperations(account.id)
-            accountDao.update(account);
-            _state.value = AccountState.Success(account = account);
         }
     }
 }
