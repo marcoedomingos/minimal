@@ -1,5 +1,6 @@
 package ao.marco.domingos.minimal.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import ao.marco.domingos.minimal.config.AppDatabase
 import ao.marco.domingos.minimal.entity.Account
@@ -41,20 +42,69 @@ class AccountViewModel(val db: AppDatabase) : ViewModel() {
         }
     }
 
-    suspend fun addOperation(amount: Double, type: OperationType) {
+    suspend fun addOperation(id: Int?, title: String, amount: Double, type: OperationType) {
         _state.value = AccountState.Loading()
-        withTimeout(2.seconds){
+        withTimeout(2.seconds) {
             withContext(Dispatchers.IO) {
-                operationDao.insert(Operation(accountId = account.id, amount = amount, type = type))
-                if(type == OperationType.CREDIT) {
-                    account.total += amount
+                if (id != null) {
+                    operationDao.update(
+                        Operation(
+                            id = id,
+                            accountId = account.id,
+                            title = title,
+                            amount = amount,
+                            type = type
+                        )
+                    )
                 } else {
-                    account.total -= amount
+                    operationDao.insert(
+                        Operation(
+                            accountId = account.id,
+                            title = title,
+                            amount = amount,
+                            type = type
+                        )
+                    )
                 }
-                account.operations = operationDao.getOperations(account.id)
-                accountDao.update(account);
+                var total = 0.0
+                val allOperations = operationDao.getOperations(account.id)
+                allOperations.forEach { operation ->
+                    if (operation.type == OperationType.CREDIT) {
+                        total += amount
+                    } else {
+                        total -= amount
+                    }
+                };
+                accountDao.update(account)
+                account = account.copy(total = total).apply {
+                    this.operations = allOperations
+                }
                 _state.value = AccountState.Success(account = account);
             }
+        }
+    }
+
+    suspend fun filterByDate(month: Int) {
+        _state.value = AccountState.Loading()
+        withContext(Dispatchers.IO) {
+            val allOperations = operationDao.getOperations(account.id)
+            val filteredOperations =
+                allOperations.filter { it.creationDate.monthValue == month + 1 }
+            var total = 0.0
+
+            filteredOperations.forEach { operation ->
+                if (operation.type == OperationType.CREDIT) {
+                    total += operation.amount
+                } else {
+                    total -= operation.amount
+                }
+            }
+
+            val filteredAccount = account.copy(total = total).apply {
+                this.operations = filteredOperations
+            }
+
+            _state.value = AccountState.Success(account = filteredAccount)
         }
     }
 }

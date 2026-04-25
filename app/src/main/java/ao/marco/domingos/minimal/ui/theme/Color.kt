@@ -20,6 +20,15 @@ val GreenLight = Color(0xFFD1FAE5)
 val Red = Color(0xFFEF4444)
 val RedLight = Color(0xFFFEE2E2)
 
+// Premium Gradient Colors
+val GradientStart = Color(0xFF1E3A8A)
+val GradientMid = Color(0xFF2563EB)
+val GradientEnd = Color(0xFF3B82F6)
+
+// Surface Elevated
+val SurfaceElevated = Color(0xFFF8FAFC)
+val SurfaceElevatedDark = Color(0xFF1E1E1E)
+
 // Legacy compatibility (cleaning up but keeping names if used)
 val Yellow = Color(0xFFFFEB3B)
 val Red80 = Color(0xFFF66B6B)

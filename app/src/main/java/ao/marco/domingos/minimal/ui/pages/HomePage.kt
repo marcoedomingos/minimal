@@ -1,12 +1,17 @@
 package ao.marco.domingos.minimal.ui.pages
 
-import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import ao.marco.domingos.minimal.config.AppDatabase
 import ao.marco.domingos.minimal.entity.Account
 import ao.marco.domingos.minimal.entity.Operation
 import ao.marco.domingos.minimal.entity.OperationType
@@ -36,190 +40,509 @@ import ao.marco.domingos.minimal.ui.viewmodel.AccountState
 import ao.marco.domingos.minimal.ui.viewmodel.AccountViewModel
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.TextStyle
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomePage(paddingValues: PaddingValues, db: AppDatabase, viewModel: AccountViewModel) {
-    val account = remember { mutableStateOf<Account>(Account()) }
+fun HomePage(viewModel: AccountViewModel) {
+    var account by remember { mutableStateOf<Account>(Account()) }
     val isShowing = remember { mutableStateOf<Boolean>(false) }
     val isOpened = remember { mutableStateOf(false) }
+    var currentOperation: Operation? by remember { mutableStateOf(null) }
     val scope = rememberCoroutineScope()
     val state = viewModel.state.collectAsState()
+    val months = arrayOf(
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro"
+    )
+    var selectedMonth by remember { mutableIntStateOf(LocalDate.now().monthValue - 1) }
+
+    // React to state changes properly
+    LaunchedEffect(key1 = state.value) {
+        if (state.value is AccountState.Success) {
+            account = (state.value as AccountState.Success).account
+        }
+
+    }
 
     LaunchedEffect(key1 = viewModel) {
         viewModel.getAccount()
-        if (state.value is AccountState.Success) {
-            account.value = (state.value as AccountState.Success).account
-        }
+    }
+
+    // Calculate income and expenses
+    val totalIncome = remember(account.operations) {
+        account.operations
+            .filter { it.type == OperationType.CREDIT }
+            .sumOf { it.amount }
+    }
+    val totalExpenses = remember(account.operations) {
+        account.operations
+            .filter { it.type == OperationType.DEBIT }
+            .sumOf { it.amount }
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize(),
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { isOpened.value = true },
+                onClick = {
+                    currentOperation = null
+                    isOpened.value = true
+                },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = CircleShape
             ) {
                 Icon(
-                    Icons.Default.Add, 
-                    modifier = Modifier.size(24.dp), 
+                    Icons.Default.Add,
+                    modifier = Modifier.size(24.dp),
                     contentDescription = "Adicionar"
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-        ) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Premium Header with Balance Card
-            BalanceCard(
-                total = account.value.total,
-                isShowing = isShowing.value,
-                onToggleVisibility = { isShowing.value = !isShowing.value }
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Section Title
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        containerColor = MaterialTheme.colorScheme.background,
+        content = { innerPadding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.History,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Histórico de Custos",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                // --- Greeting Header ---
+                item {
+                    GreetingHeader()
+                }
+
+                // --- Balance Card ---
+                item {
+                    BalanceCard(
+                        total = account.total,
+                        income = totalIncome,
+                        expenses = totalExpenses,
+                        isShowing = isShowing.value,
+                        onToggleVisibility = { isShowing.value = !isShowing.value }
                     )
                 }
-                Text(
-                    "${account.value.operations.size} itens",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Operations List
-            if(state.value is AccountState.Loading)
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-            else
-                if (account.value.operations.isEmpty()) {
-                    EmptyState()
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 80.dp)
+                // --- Quick Summary Cards ---
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(account.value.operations.sortedByDescending { it.creationDate }) { operation ->
-                            OperationItem(operation)
+                        SummaryMiniCard(
+                            modifier = Modifier.weight(1f),
+                            label = "Entradas",
+                            amount = totalIncome,
+                            icon = Icons.Default.ArrowDownward,
+                            color = Green,
+                            bgColor = GreenLight
+                        )
+                        SummaryMiniCard(
+                            modifier = Modifier.weight(1f),
+                            label = "Saídas",
+                            amount = totalExpenses,
+                            icon = Icons.Default.ArrowUpward,
+                            color = Red,
+                            bgColor = RedLight
+                        )
+                    }
+                }
+
+                // --- Month Filter Chips ---
+                item {
+                    MonthFilterChips(
+                        months = months,
+                        selectedMonth = selectedMonth,
+                        onMonthSelected = {
+                            selectedMonth = it
+                            scope.launch {
+                                viewModel.filterByDate(selectedMonth)
+                            }
+                        }
+                    )
+                }
+
+                // --- Section Title ---
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Histórico de Custos",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            "${account.operations.size} itens",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+
+                // --- Operations List ---
+                if (state.value is AccountState.Loading) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (account.operations.isEmpty()) {
+                    item {
+                        EmptyState()
+                    }
+                } else {
+                    val sorted = account.operations.sortedByDescending { it.creationDate }
+                    itemsIndexed(sorted) { index, operation ->
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = fadeIn(tween(300, delayMillis = index * 50)) +
+                                    slideInVertically(
+                                        tween(
+                                            300,
+                                            delayMillis = index * 50
+                                        )
+                                    ) { it / 2 }
+                        ) {
+                            OperationItem(operation, onClick = {
+                                currentOperation = operation
+                                isOpened.value = true
+                            })
                         }
                     }
                 }
+            }
         }
-    }
+    )
 
-    // Modern Dialog for adding operations
+    // Dialog for adding/editing operations
     if (isOpened.value) {
         AddOperationDialog(
             onDismiss = { isOpened.value = false },
-            onSave = { value, type ->
+            operation = currentOperation,
+            onSave = { title, value, type ->
                 scope.launch {
                     isOpened.value = false
-                    viewModel.addOperation(value, type)
+                    viewModel.addOperation(id = currentOperation?.id, title, value, type)
                 }
             }
         )
     }
 }
 
+// ─── Greeting Header ────────────────────────────────────────────────────────────
+
 @Composable
-fun BalanceCard(total: Double, isShowing: Boolean, onToggleVisibility: () -> Unit) {
+fun GreetingHeader() {
+    val hour = LocalTime.now().hour
+    val greeting = when {
+        hour < 12 -> "Bom dia"
+        hour < 18 -> "Boa tarde"
+        else -> "Boa noite"
+    }
+    val today = LocalDate.now()
+    val dayOfWeek = today.dayOfWeek.getDisplayName(TextStyle.FULL, Locale("pt", "AO"))
+        .replaceFirstChar { it.uppercase() }
+    val dayOfMonth = today.dayOfMonth
+    val month = today.month.getDisplayName(TextStyle.FULL, Locale("pt", "AO"))
+        .replaceFirstChar { it.uppercase() }
+
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        Text(
+            text = "$greeting 👋",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "$dayOfWeek, $dayOfMonth de $month",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
+    }
+}
+
+// ─── Balance Card ───────────────────────────────────────────────────────────────
+
+@Composable
+fun BalanceCard(
+    total: Double,
+    income: Double,
+    expenses: Double,
+    isShowing: Boolean,
+    onToggleVisibility: () -> Unit
+) {
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("pt", "AO")) }
-    
+
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp),
+            .fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                    Brush.linearGradient(
+                        colors = listOf(
+                            GradientStart,
+                            GradientMid,
+                            GradientEnd
+                        )
                     )
                 )
                 .padding(24.dp)
         ) {
-            Column(modifier = Modifier.align(Alignment.TopStart)) {
-                Text(
-                    "Balanço Total",
-                    color = Color.White.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Top section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = if (isShowing) {
-                            val formatted = currencyFormatter.format(total)
-                            formatted.replace("Kz", "kz")
-                        } else "**** kz",
-                        color = Color.White,
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 32.sp
+                        "Balanço Total",
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.labelLarge
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    IconButton(onClick = onToggleVisibility) {
+                    IconButton(
+                        onClick = onToggleVisibility,
+                        modifier = Modifier.size(32.dp)
+                    ) {
                         Icon(
                             imageVector = if (isShowing) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                             contentDescription = "Toggle Visibility",
-                            tint = Color.White.copy(alpha = 0.7f)
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Amount
+                Text(
+                    text = if (isShowing) {
+                        currencyFormatter.format(total).replace("Kz", "kz")
+                    } else "•••••• kz",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 34.sp
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Bottom summary row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF34D399))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isShowing) "+${
+                                currencyFormatter.format(income).replace("Kz", "kz")
+                            }"
+                            else "+••••",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFF87171))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isShowing) "-${
+                                currencyFormatter.format(expenses).replace("Kz", "kz")
+                            }"
+                            else "-••••",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
             }
-            
-            // Decorative element using a common icon
+
+            // Decorative element
             Icon(
                 Icons.Default.AccountBalance,
                 contentDescription = null,
                 modifier = Modifier
-                    .size(80.dp)
-                    .align(Alignment.BottomEnd)
-                    .graphicsLayer(alpha = 0.1f),
+                    .size(100.dp)
+                    .align(Alignment.TopEnd)
+                    .graphicsLayer(
+                        alpha = 0.06f,
+                        translationX = 20f,
+                        translationY = -10f
+                    ),
                 tint = Color.White
             )
         }
     }
 }
 
+// ─── Summary Mini Card ──────────────────────────────────────────────────────────
+
 @Composable
-fun OperationItem(operation: Operation) {
+fun SummaryMiniCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    amount: Double,
+    icon: ImageVector,
+    color: Color,
+    bgColor: Color
+) {
+    val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("pt", "AO")) }
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(bgColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Column {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+                Text(
+                    currencyFormatter.format(amount).replace("Kz", "kz"),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = color
+                )
+            }
+        }
+    }
+}
+
+// ─── Month Filter Chips ─────────────────────────────────────────────────────────
+
+@Composable
+fun MonthFilterChips(
+    months: Array<String>,
+    selectedMonth: Int,
+    onMonthSelected: (Int) -> Unit
+) {
+    Column {
+        Text(
+            "Filtrar por mês",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            months.forEachIndexed { index, month ->
+                FilterChip(
+                    selected = selectedMonth == index,
+                    onClick = { onMonthSelected(index) },
+                    label = {
+                        Text(
+                            month.take(3),
+                            fontWeight = if (selectedMonth == index) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 13.sp
+                        )
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+            }
+        }
+    }
+}
+
+// ─── Operation Item ─────────────────────────────────────────────────────────────
+
+@Composable
+fun OperationItem(operation: Operation, onClick: () -> Unit = {}) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = true, onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -243,7 +566,7 @@ fun OperationItem(operation: Operation) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (operation.type == OperationType.CREDIT) 
+                        imageVector = if (operation.type == OperationType.CREDIT)
                             Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
                         contentDescription = null,
                         tint = if (operation.type == OperationType.CREDIT) Green else Red,
@@ -253,14 +576,15 @@ fun OperationItem(operation: Operation) {
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
                     Text(
-                        text = if (operation.type == OperationType.CREDIT) "Entrada" else "Saída",
+                        text = operation.title,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = operation.creationDate.toString(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
             }
@@ -274,42 +598,66 @@ fun OperationItem(operation: Operation) {
     }
 }
 
+// ─── Empty State ────────────────────────────────────────────────────────────────
+
 @Composable
 fun EmptyState() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.7f),
+            .padding(vertical = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.Inbox,
-            contentDescription = null,
-            modifier = Modifier.size(80.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Inbox,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
         Text(
             "Nenhum custo registado",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            color = MaterialTheme.colorScheme.onBackground
         )
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             "Clique no botão + para adicionar",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
         )
     }
 }
 
+// ─── Add Operation Dialog ───────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) -> Unit) {
+fun AddOperationDialog(
+    operation: Operation?,
+    onDismiss: () -> Unit,
+    onSave: (String, Double, OperationType) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(OperationType.CREDIT) }
     var isDropped by remember { mutableStateOf(false) }
+
+    LaunchedEffect(key1 = operation) {
+        title = operation?.title ?: ""
+        value = operation?.amount?.toString() ?: ""
+        selectedType = operation?.type ?: OperationType.CREDIT
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -329,13 +677,43 @@ fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) ->
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header icon
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (operation != null) Icons.Default.Edit else Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Text(
-                    "Nova Transação",
+                    if (operation != null) "Editar Transação" else "Nova Transação",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Título") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
                     value = value,
@@ -370,7 +748,7 @@ fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) ->
                             .matchParentSize()
                             .clickable { isDropped = true }
                     )
-                    
+
                     DropdownMenu(
                         expanded = isDropped,
                         onDismissRequest = { isDropped = false },
@@ -378,8 +756,8 @@ fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) ->
                     ) {
                         OperationType.entries.forEach { type ->
                             DropdownMenuItem(
-                                text = { 
-                                    Text(if (type == OperationType.CREDIT) "Entrada" else "Saída") 
+                                text = {
+                                    Text(if (type == OperationType.CREDIT) "Entrada" else "Saída")
                                 },
                                 onClick = {
                                     selectedType = type
@@ -396,7 +774,7 @@ fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) ->
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    TextButton(
+                    OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
@@ -406,7 +784,7 @@ fun AddOperationDialog(onDismiss: () -> Unit, onSave: (Double, OperationType) ->
                     Button(
                         onClick = {
                             val amount = value.toDoubleOrNull() ?: 0.0
-                            if (amount > 0) onSave(amount, selectedType)
+                            if (amount > 0) onSave(title, amount, selectedType)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),

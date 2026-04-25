@@ -15,6 +15,7 @@ enum class OperationType {
 data class Operation (
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val accountId: Int = 0,
+    val title: String = "",
     val amount: Double = 0.0,
     val type: OperationType,
     val creationDate: LocalDate = LocalDate.now()

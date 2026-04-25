@@ -31,7 +31,15 @@ Este guia define os padrões e convenções obrigatórios para o projeto Minimal
 - Use funções `suspend` nos DAOs para operações assíncronas.
 - Execute operações de banco de dados sempre em `Dispatchers.IO` dentro do ViewModel usando `viewModelScope.launch`.
 
-### 4. Convenções de Código
+### 4. Design System (Cores e Temas)
+- **Use o MaterialTheme:** Evite cores "hardcoded". Use sempre `MaterialTheme.colorScheme`.
+- **Paleta de Cores Obrigatória:**
+    - **Primary:** `PrimaryBlue` (#2563EB) para botões principais e destaques.
+    - **Background:** `White` em modo claro e `Black` (#121212) em modo escuro.
+    - **Status:** `Green` para créditos/sucesso e `Red` para débitos/erro.
+- **Estética:** Mantenha o visual minimalista com cantos arredondados (`RoundedCornerShape(16.dp)`) e o uso de `BalanceCard` para exibir informações monetárias.
+
+### 5. Convenções de Código
 - **Pages:** Localizadas em `ui.pages`.
 - **ViewModels:** Localizadas em `ui.viewmodel`.
 - **Entities/DAOs:** Localizadas nos pacotes `entity` e `dao`.
